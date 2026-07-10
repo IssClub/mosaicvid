@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;900&family=Heebo:wght@300;400;500;600;700;900&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg: #1c1815;
+  --surface: #262019;
+  --surface-2: #302921;
+  --accent-amber: #e8a33d;
+  --accent-coral: #c4483a;
+  --text: #f2ece1;
+  --muted: #9c8f80;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Heebo', sans-serif;
+  direction: rtl;
+}
+
+.font-display {
+  font-family: 'Frank Ruhl Libre', serif;
+}
+
+* {
+  scrollbar-color: var(--surface-2) var(--bg);
+}
