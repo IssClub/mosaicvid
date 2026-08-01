@@ -41,6 +41,23 @@ function hashStr(s) {
   return h
 }
 
+// גודל מקסימלי (פיקסלים בציר הארוך) לתמונה ממוזערת שמוחזקת בזיכרון לאחר שפריט "התיישב" באריח הסופי -
+// הרבה יותר קטן מהתמונה המקורית (עד 1600px), כדי שמאות פריטים לא יצברו ג'יגה-בייטים של זיכרון תמונות
+// מפוענחות לכל אורך הסרטון.
+const SETTLED_TILE_CACHE_SIZE = 320
+
+function downscaleForTile(source, maxSize) {
+  const { width: nw, height: nh } = naturalSize(source)
+  const scale = Math.min(1, maxSize / Math.max(nw, nh))
+  const w = Math.max(1, Math.round(nw * scale))
+  const h = Math.max(1, Math.round(nh * scale))
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  c.getContext('2d').drawImage(source, 0, 0, w, h)
+  return c
+}
+
 /**
  * מצייר דף טקסט (פתיחה/סיום) - רקע (צבע/עיצוב), עם אנימציית כניסה ודהייה ביציאה.
  */
@@ -118,7 +135,7 @@ export default function MosaicPlayer({
   outroPages = [],
   outroSchedule = [],
   audioEngine = null,
-  onCanvasReady,
+  onExportApiReady,
   className = '',
 }) {
   const canvasRef = useRef(null)
@@ -137,10 +154,6 @@ export default function MosaicPlayer({
   }, [media, entryStyleSetting])
 
   useEffect(() => {
-    if (onCanvasReady) onCanvasReady(canvasRef.current)
-  }, [onCanvasReady])
-
-  useEffect(() => {
     if (background?.type === 'image' && background.imageFile) {
       const url = URL.createObjectURL(background.imageFile)
       const img = new Image()
@@ -156,20 +169,53 @@ export default function MosaicPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [background?.type, background?.imageFile])
 
-  function getImage(url) {
+  /**
+   * טוען ומחזיר תמונה עבור ציור. wantFull=true (כניסה/הצגה/נפילה) מחזיר את התמונה בגודל המלא.
+   * wantFull=false (הפריט כבר התיישב באריח הסופי) מוזערת אותה לגודל אריח ומשחררת את הגרסה הכבדה
+   * מהזיכרון - קריטי עם הרבה פריטים, אחרת כל תמונה שכבר "סיימה את תפקידה" ממשיכה לתפוס זיכרון
+   * מלא לכל אורך הסרטון (בדיוק כמו disposeVideo לוידאו).
+   */
+  function getImage(url, wantFull) {
     const cache = imageCacheRef.current
     let entry = cache.get(url)
     if (!entry) {
+      entry = { full: null, small: null, loading: false }
+      cache.set(url, entry)
+    }
+
+    if (!wantFull) {
+      if (entry.full && !entry.small) {
+        entry.small = downscaleForTile(entry.full, SETTLED_TILE_CACHE_SIZE)
+        entry.full = null
+      }
+      if (entry.small) return entry.small
+      if (!entry.loading) {
+        entry.loading = true
+        const img = new Image()
+        img.onload = () => {
+          entry.small = downscaleForTile(img, SETTLED_TILE_CACHE_SIZE)
+          entry.loading = false
+          draw()
+        }
+        img.src = url
+      }
+      return null
+    }
+
+    // צריך גודל מלא - אם קיימת רק גרסה ממוזערת (למשל גרירה אחורה בציר לפני שהפריט התיישב),
+    // טוענים מחדש מהמקור (מהיר - הדפדפן כבר שמר את הקובץ במטמון הרשת).
+    if (entry.full) return entry.full
+    if (!entry.loading) {
+      entry.loading = true
       const img = new Image()
-      entry = { img, loaded: false }
       img.onload = () => {
-        entry.loaded = true
+        entry.full = img
+        entry.loading = false
         draw()
       }
       img.src = url
-      cache.set(url, entry)
     }
-    return entry.loaded ? entry.img : null
+    return entry.small
   }
 
   function getVideoEl(item) {
@@ -230,28 +276,33 @@ export default function MosaicPlayer({
     ctx.restore()
   }
 
-  function draw() {
+  /**
+   * מצייר פריים בודד. overrideT מאפשר לצייר פריים בזמן מסוים באופן אימפרטיבי (למשל לייצוא
+   * דטרמיניסטי פריים-אחר-פריים) בלי לעבור דרך ה-prop/state הרגיל של currentTime.
+   */
+  function draw(overrideT) {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     const { width, height } = canvas
+    const time = overrideT ?? currentTime
 
     const introDur = introTotalDuration || 0
     const mosaicEnd = introDur + totalDuration
 
     // שלב דפי פתיחה
-    if (introPages.length > 0 && currentTime < introDur) {
-      const idx = introSchedule.findIndex((s) => currentTime < s.end)
+    if (introPages.length > 0 && time < introDur) {
+      const idx = introSchedule.findIndex((s) => time < s.end)
       const activeIdx = idx === -1 ? introSchedule.length - 1 : idx
       if (introSchedule[activeIdx]) {
-        drawTextPage(ctx, width, height, introPages[activeIdx], introSchedule[activeIdx], currentTime)
+        drawTextPage(ctx, width, height, introPages[activeIdx], introSchedule[activeIdx], time)
       }
       return
     }
 
     // שלב דפי סיום
-    if (outroPages.length > 0 && currentTime >= mosaicEnd) {
-      const localT = currentTime - mosaicEnd
+    if (outroPages.length > 0 && time >= mosaicEnd) {
+      const localT = time - mosaicEnd
       const idx = outroSchedule.findIndex((s) => localT < s.end)
       const activeIdx = idx === -1 ? outroSchedule.length - 1 : idx
       if (outroSchedule[activeIdx]) {
@@ -261,7 +312,7 @@ export default function MosaicPlayer({
     }
 
     // שלב הפסיפס עצמו - הזמן הפנימי שלו מוזז אחרי דפי הפתיחה
-    const t = currentTime - introDur
+    const t = time - introDur
 
     const bgConfig = background?.type === 'image' ? { ...background, image: bgImageRef.current } : background
     renderBackground(ctx, width, height, bgConfig)
@@ -277,7 +328,8 @@ export default function MosaicPlayer({
       const target = { x: p.x * width, y: p.y * height }
       const mediaItem = media && media[i]
       const isVideo = mediaItem?.type === 'video' && mediaItem.videoUrl
-      const staticImg = mediaItem?.thumbnailUrl ? getImage(mediaItem.thumbnailUrl) : null
+      const settled = t >= sch.end
+      const staticImg = mediaItem?.thumbnailUrl ? getImage(mediaItem.thumbnailUrl, !settled) : null
 
       // תיבת "גודל מלא" ששומרת על יחס הממדים הטבעי, חסומה בתוך fullSize
       const refForAspect = staticImg
@@ -393,6 +445,69 @@ export default function MosaicPlayer({
     })
   }
 
+  /** מחכה שוידאו נתון יגיע בדיוק (או קרוב ככל האפשר) לזמן היעד, לפני שממשיכים לצייר אותו. */
+  function seekVideoPrecise(vs, targetSec) {
+    return new Promise((resolve) => {
+      const target = Math.max(0, targetSec)
+      if (vs.el.readyState >= 2 && Math.abs(vs.el.currentTime - target) < 0.01) {
+        resolve()
+        return
+      }
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        vs.el.removeEventListener('seeked', finish)
+        clearTimeout(timeoutId)
+        resolve()
+      }
+      vs.el.addEventListener('seeked', finish)
+      // רשת/קידוד תקוע לא אמור לתקוע את כל הייצוא - אחרי המתנה סבירה ממשיכים עם מה שיש
+      const timeoutId = setTimeout(finish, 1000)
+      try {
+        vs.el.currentTime = target
+      } catch (e) {
+        finish()
+      }
+    })
+  }
+
+  /**
+   * מצייר פריים אחד בזמן נתון (ms) באופן אימפרטיבי, אחרי שסידר/חיכה לכל וידאו רלוונטי להגיע
+   * בדיוק לזמן המקומי הנכון שלו - משמש את הייצוא הדטרמיניסטי (פריים-אחר-פריים, לא בזמן אמת).
+   */
+  async function renderFrameAt(timeMs, skipVideoSeek) {
+    const introDur = introTotalDuration || 0
+    const t = timeMs - introDur
+    if (t >= 0 && t < totalDuration && !skipVideoSeek) {
+      // חיפוש מדויק (seek) בוידאו הוא הפעולה היקרה ביותר בייצוא (עשרות-מאות מ"ש לכל קריאה, כי
+      // הדפדפן צריך לפענח בפועל את הפריים המבוקש) - skipVideoSeek מאפשר לדלג עליו בחלק
+      // מהפריימים (ולצייר עם הפריים המפוענח הקודם) כדי לקצר דרמטית ייצוא עם הרבה תוכן וידאו.
+      const seeks = []
+      points.forEach((p, i) => {
+        const sch = schedule[i]
+        if (!sch) return
+        const mediaItem = media && media[i]
+        const isVideo = mediaItem?.type === 'video' && mediaItem.videoUrl
+        if (isVideo && t >= sch.enterEnd && t < sch.displayEnd) {
+          const vs = getVideoEl(mediaItem)
+          if (vs.el.paused === false) vs.el.pause()
+          const localTime = (t - sch.enterEnd) / 1000
+          seeks.push(seekVideoPrecise(vs, localTime))
+        }
+      })
+      if (seeks.length) await Promise.all(seeks)
+    }
+    draw(timeMs)
+  }
+
+  useEffect(() => {
+    if (onExportApiReady) {
+      onExportApiReady({ renderFrameAt, getCanvas: () => canvasRef.current })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onExportApiReady, points, media, schedule, totalDuration, introTotalDuration])
+
   useEffect(() => {
     draw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -411,14 +526,30 @@ export default function MosaicPlayer({
     function resize() {
       const cw = container.clientWidth
       const ch = container.clientHeight
+      if (cw <= 0 || ch <= 0) return // המכל זמנית ללא שטח (למשל תוך כדי מעבר למסך מלא) - מדלגים כדי לא לאפס את הקנבס לגודל 0
       let w = cw
       let h = w / aspect
       if (h > ch) {
         h = ch
         w = h * aspect
       }
-      canvas.width = Math.round(w * devicePixelRatio)
-      canvas.height = Math.round(h * devicePixelRatio)
+      // רזולוציית הקנבס בפועל (שהיא גם מה שמוקלט לייצוא) קבועה תמיד בציר הארוך, בלי שום קשר לגודל
+      // התצוגה על המסך כרגע - כדי שהייצוא לא ייצא באיכות נמוכה סתם כי חלון הדפדפן/DevTools
+      // מכווצים את שטח התצוגה. ה-CSS (style.width/height) בלבד קובע איך זה נראה על המסך;
+      // רזולוציית הפיקסלים בפועל תמיד קבועה.
+      // 1280 (במקום 1920 המקורי) - כדי לצמצם את צריכת הזיכרון הפנימית של ffmpeg.wasm בייצוא
+      // (שקרסה עם "RuntimeError: memory access out of bounds" ב-1920 עם 180+ פריטים).
+      const TARGET_LONG_EDGE = 1280
+      let pw, ph
+      if (aspect >= 1) {
+        pw = TARGET_LONG_EDGE
+        ph = Math.round(TARGET_LONG_EDGE / aspect)
+      } else {
+        ph = TARGET_LONG_EDGE
+        pw = Math.round(TARGET_LONG_EDGE * aspect)
+      }
+      canvas.width = pw
+      canvas.height = ph
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
       draw()

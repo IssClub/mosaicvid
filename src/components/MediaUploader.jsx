@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif', 'tif', 'tiff', 'avif']
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'webm', 'm4v', 'avi', 'mkv', '3gp', 'ogv']
@@ -19,9 +19,19 @@ function classifyFile(f) {
   return null
 }
 
-export default memo(function MediaUploader({ items, onAddFiles, onRemove, onRemoveErrors, onToggleEntryMode, orderMode, onOrderModeChange, onSetItemsDuration, onClearItemsDuration, defaultStayDuration }) {
+export default memo(function MediaUploader({ items, onAddFiles, onRemove, onRemoveErrors, onToggleEntryMode, orderMode, onOrderModeChange, onSetItemsDuration, onClearItemsDuration, defaultStayDuration, defaultEntryMode, onDefaultEntryModeChange }) {
   const [selectedIds, setSelectedIds] = useState([])
   const [durationDraft, setDurationDraft] = useState(1000)
+  const wasEmptyRef = useRef(true)
+
+  // בכל פעם שמתחילים סימון חדש (מריק לנבחר), מאפסים את הסליידר לברירת המחדל - כדי שערך
+  // שהוחל בעבר על סט אחר לא "ידבק" בטעות לסט הבא בלי שהמשתמש שם לב לשנות אותו.
+  useEffect(() => {
+    if (selectedIds.length > 0 && wasEmptyRef.current) {
+      setDurationDraft(defaultStayDuration)
+    }
+    wasEmptyRef.current = selectedIds.length === 0
+  }, [selectedIds, defaultStayDuration])
 
   function toggleSelect(id) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -138,6 +148,31 @@ export default memo(function MediaUploader({ items, onAddFiles, onRemove, onRemo
             כדי לשלוט בסדר המדויק, מספר את שמות הקבצים לפני ההעלאה (למשל 01.jpg, 02.jpg...).
           </p>
         )}
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-[var(--muted)]">ברירת מחדל למצב כניסה (לפריטים חדשים)</label>
+        <div className="flex gap-2 bg-[var(--surface)] p-1 rounded-xl">
+          {[
+            { key: 'solo', label: 'לבד' },
+            { key: 'overlap', label: 'חפיפה' },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => onDefaultEntryModeChange(opt.key)}
+              className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                defaultEntryMode === opt.key
+                  ? 'bg-[var(--accent-amber)] text-[#1c1815]'
+                  : 'text-[var(--muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-[var(--muted)]">
+          קובע את המצב עבור פריטים שיועלו מעכשיו והלאה. אפשר עדיין לשנות מצב לכל פריט בנפרד בתג שעל התמונה.
+        </p>
       </div>
 
       {items.length > 0 && (

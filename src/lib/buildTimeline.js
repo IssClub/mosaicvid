@@ -7,11 +7,14 @@
 // חוקי התזמון בין פריטים:
 // - פריט 'solo': תופס את המסך לבד - שום פריט אחר לא יכול להתחיל להיכנס עד שהוא מסיים את שלוש הפאזות.
 // - פריט 'overlap': הפריט הבא יכול להתחיל להיכנס ברגע שהפריט הנוכחי מתחיל *לנפול* (לא צריך לחכות שיסיים).
+//
+// אחרי שהפריט האחרון נופל למקומו, ה-holdDuration מוסיף עוד זמן שבו הפסיפס המוגמר (כל התמונות
+// כבר בצורה הסופית) פשוט נשאר מוצג במקום לעבור מיד לדף הסיום/לסיים את הסרטון - "רגע השיא".
 
 /**
  * @returns {{schedule: Array, totalDuration:number}}
  */
-export function buildTimeline(items, { enterDuration = 550, stayDuration = 500, settleDuration = 550, staggerGap = 150 } = {}) {
+export function buildTimeline(items, { enterDuration = 550, stayDuration = 500, settleDuration = 550, staggerGap = 150, holdDuration = 0 } = {}) {
   let barrier = 0
   let maxEnd = 0
   let cursor = 0
@@ -36,5 +39,5 @@ export function buildTimeline(items, { enterDuration = 550, stayDuration = 500, 
     return { start, enterEnd, displayEnd, end, enterDuration, displayDuration: display, settleDuration: settle, mode }
   })
 
-  return { schedule, totalDuration: maxEnd }
+  return { schedule, totalDuration: maxEnd + (items.length > 0 ? holdDuration : 0) }
 }

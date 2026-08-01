@@ -1,7 +1,6 @@
 import { memo, useRef, useState } from 'react'
 
 const MIN_CLIP_MS = 500
-const DEFAULT_FADE_MS = 1000
 const TRACK_COLORS = ['#e8a33d', '#c4483a', '#8fae7d', '#7d9dae', '#ae7da3']
 
 function fmt(ms) {
@@ -151,5 +150,3 @@ export default memo(function AudioTimeline({ tracks, totalDuration, onAddTracks,
     </div>
   )
 })
-
-export { DEFAULT_FADE_MS }

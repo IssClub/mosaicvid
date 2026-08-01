@@ -3,7 +3,7 @@
 // מיקום על ציר הזמן, ו-fade-in/fade-out), וב"עמעום" (ducking) אוטומטי של כל ערוצי המוזיקה יחד
 // כשמתנגן וידאו עם קול בתוך הפסיפס.
 
-const DUCK_VOLUME = 0.25
+const DUCK_VOLUME = 0.08
 const DUCK_TRANSITION_MS = 400
 
 export class AudioEngine {
@@ -13,7 +13,6 @@ export class AudioEngine {
     this.activeSources = []
     this.buffers = new Map()
     this.videoSources = new Map() // videoEl -> { source, gain }
-    this.recordingDestination = null
   }
 
   ensureContext() {
@@ -26,7 +25,8 @@ export class AudioEngine {
   }
 
   /**
-   * מחבר אלמנט <video> לגרף האודיו של Web Audio (נדרש כדי שנוכל ללכוד את הקול שלו בהקלטת הייצוא).
+   * מחבר אלמנט <video> לגרף האודיו של Web Audio (נדרש כדי שנשמע בכלל את הקול שלו - ברגע שיש
+   * MediaElementSourceNode, הפלט הישיר של האלמנט מנותק ועובר רק דרך מה שהוא מחובר אליו).
    * הקול של הווידאו לא עובר דרך ה-master gain (ולכן לא מושפע מעקומת ה-ducking) - רק המוזיקה מתעמעמת.
    */
   connectVideoElement(videoEl) {
@@ -38,30 +38,10 @@ export class AudioEngine {
       gain.gain.value = 1
       source.connect(gain)
       gain.connect(ctx.destination)
-      if (this.recordingDestination) gain.connect(this.recordingDestination)
       this.videoSources.set(videoEl, { source, gain })
     } catch (e) {
-      // כבר מחובר או שהדפדפן לא תומך - לא קריטי, הווידאו פשוט לא ישתתף בהקלטה
+      // כבר מחובר או שהדפדפן לא תומך - לא קריטי
     }
-  }
-
-  /** מתחיל ללכוד את כל פלט האודיו (מוזיקה + וידאו) ליעד הקלטה נפרד. מחזיר MediaStream. */
-  startExportCapture() {
-    const ctx = this.ensureContext()
-    if (!this.recordingDestination) {
-      this.recordingDestination = ctx.createMediaStreamDestination()
-    }
-    this.masterGain.connect(this.recordingDestination)
-    this.videoSources.forEach(({ gain }) => gain.connect(this.recordingDestination))
-    return this.recordingDestination.stream
-  }
-
-  stopExportCapture() {
-    if (!this.recordingDestination) return
-    try { this.masterGain.disconnect(this.recordingDestination) } catch (e) {}
-    this.videoSources.forEach(({ gain }) => {
-      try { gain.disconnect(this.recordingDestination) } catch (e) {}
-    })
   }
 
   /** טוען קובץ שמע לרצועה נתונה, ומחזיר את משכו המקורי (מ"ש). */
@@ -71,6 +51,12 @@ export class AudioEngine {
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0))
     this.buffers.set(trackId, audioBuffer)
     return audioBuffer.duration * 1000
+  }
+
+  /** מחזיר את ה-AudioBuffer שכבר פוענח לרצועה נתונה (או undefined) - משמש את הייצוא הדטרמיניסטי
+   *  כדי לרנדר קול בלי לפענח את קובץ המקור פעם נוספת. */
+  getBuffer(trackId) {
+    return this.buffers.get(trackId)
   }
 
   removeTrack(trackId) {

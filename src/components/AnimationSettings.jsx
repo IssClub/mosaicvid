@@ -10,6 +10,8 @@ export default memo(function AnimationSettings({
   onSettleDurationChange,
   staggerGap,
   onStaggerGapChange,
+  holdDuration,
+  onHoldDurationChange,
 }) {
   return (
     <div className="space-y-6">
@@ -77,6 +79,25 @@ export default memo(function AnimationSettings({
         />
         <p className="text-xs text-[var(--muted)] mt-1">
           התמונה הבאה (אם מסומנת "חפיפה") נכנסת ברגע שהנוכחית מתחילה ליפול לפסיפס. ערך נמוך = הכניסה הבאה קרובה יותר לרגע הנפילה.
+        </p>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm text-[var(--muted)]">הצגת הפסיפס המוגמר בסוף</label>
+          <span className="text-[var(--accent-amber)] text-sm">{(holdDuration / 1000).toFixed(1)}s</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={10000}
+          step={250}
+          value={holdDuration}
+          onChange={(e) => onHoldDurationChange(Number(e.target.value))}
+          className="w-full accent-[var(--accent-amber)]"
+        />
+        <p className="text-xs text-[var(--muted)] mt-1">
+          כמה זמן הפסיפס המלא (אחרי שכל התמונות נפלו למקומן) נשאר מוצג במסך לפני שהסרטון ממשיך לדף הסיום/מסתיים.
         </p>
       </div>
     </div>
